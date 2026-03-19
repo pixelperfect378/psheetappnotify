@@ -5,6 +5,11 @@ const credentials = require('../config/credentials');
 const db = require('../services/db');
 const authMiddleware = require('../middleware/authMiddleware');
 
+// Initialize OAuth2 client with explicit validation
+if (!credentials.google.clientId || !credentials.google.clientSecret) {
+  console.error('[Auth] Error: Google OAuth credentials not found in environment.');
+}
+
 const oauth2Client = new google.auth.OAuth2(
   credentials.google.clientId,
   credentials.google.clientSecret,
@@ -43,6 +48,11 @@ router.get('/google/callback', async (req, res) => {
   const userId = state; // We used state to pass userId in this example
 
   try {
+    console.log('[Auth] Exchanging code for tokens...');
+    console.log('[Auth] Used Client ID:', credentials.google.clientId);
+    
+    if (!code) throw new Error('No code provided in callback');
+
     const { tokens } = await oauth2Client.getToken(code);
     console.log('[Auth] Received tokens for user:', userId);
 
