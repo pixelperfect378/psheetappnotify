@@ -34,6 +34,9 @@ async function initDb() {
         sheet_title TEXT NOT NULL,
         last_row_count INTEGER DEFAULT 0,
         last_check TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        access_token TEXT,
+        refresh_token TEXT,
+        token_expiry TIMESTAMP,
         UNIQUE(user_id, spreadsheet_id, sheet_title)
       )
     `);

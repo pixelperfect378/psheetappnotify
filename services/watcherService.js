@@ -60,10 +60,14 @@ async function checkSheets() {
         
         for (const watch of watchedSheets) {
             try {
-                // Note: In a real production app, we'd need a stored Google Token for the user
-                // or use the service account if the sheet is shared with it.
-                // For now, we attempt with service account (default in getSheetMeta if no token provided).
-                const meta = await getSheetMeta(watch.spreadsheet_id, watch.sheet_title);
+                // Pass the stored tokens (access, refresh, expiry) to the service
+                const tokenData = {
+                    access_token: watch.access_token,
+                    refresh_token: watch.refresh_token,
+                    expiry_date: watch.token_expiry ? new Date(watch.token_expiry).getTime() : null
+                };
+
+                const meta = await getSheetMeta(watch.spreadsheet_id, watch.sheet_title, tokenData);
 
                 if (meta.total_rows > watch.last_row_count) {
                     console.log(`[Watcher] New rows detected in ${watch.sheet_title} (${watch.spreadsheet_id})`);

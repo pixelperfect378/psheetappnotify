@@ -13,6 +13,9 @@ const credentials = {
     serviceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON
       ? JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON)
       : null,
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    redirectUri: process.env.GOOGLE_REDIRECT_URI || 'https://psheetappnotify-production.up.railway.app/auth/google/callback',
   },
 
   firebase: {

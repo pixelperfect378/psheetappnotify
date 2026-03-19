@@ -11,6 +11,7 @@ const credentials = require('./config/credentials');
 const sheetsRouter = require('./routes/sheets');
 const notificationsRouter = require('./routes/notifications');
 const deviceRouter = require('./routes/device');
+const authRouter = require('./routes/auth');
 
 const app = express();
 
@@ -61,6 +62,7 @@ app.use('/sheet', sheetsRouter);           // alias
 app.use('/notification', notificationsRouter);
 app.use('/notifications', notificationsRouter); // alias
 app.use('/register-device', deviceRouter);
+app.use('/auth', authRouter);
 
 // ─── 404 Handler ────────────────────────────────────────────────────────────
 app.use((req, res) => {

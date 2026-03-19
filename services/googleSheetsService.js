@@ -3,13 +3,25 @@ const credentials = require('../config/credentials');
 
 let sheetsClient = null;
 
-async function getSheetsClient(googleToken = null) {
+async function getSheetsClient(tokenData = null) {
     let auth;
 
-    if (googleToken) {
-        // Use user's OAuth access token
+    if (tokenData && typeof tokenData === 'object') {
+        const oauth2Client = new google.auth.OAuth2(
+            credentials.google.clientId,
+            credentials.google.clientSecret,
+            credentials.google.redirectUri
+        );
+        oauth2Client.setCredentials({
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token,
+            expiry_date: tokenData.expiry_date
+        });
+        auth = oauth2Client;
+    } else if (typeof tokenData === 'string') {
+        // Legacy support for raw access token string
         const oauth2Client = new google.auth.OAuth2();
-        oauth2Client.setCredentials({ access_token: googleToken });
+        oauth2Client.setCredentials({ access_token: tokenData });
         auth = oauth2Client;
     } else if (credentials.google.serviceAccountJson) {
         auth = new google.auth.GoogleAuth({
