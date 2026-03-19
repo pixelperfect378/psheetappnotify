@@ -37,4 +37,12 @@ const credentials = {
   databaseUrl: process.env.DATABASE_URL || '',
 };
 
+// --- Validation ---
+if (!credentials.google.clientId || !credentials.google.clientSecret) {
+  console.error('❌ CRITICAL ERROR: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is missing!');
+} else {
+  console.log('✅ Google OAuth credentials detected.');
+  console.log('CLIENT ID:', credentials.google.clientId);
+}
+
 module.exports = credentials;
