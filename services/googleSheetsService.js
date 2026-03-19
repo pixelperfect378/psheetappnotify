@@ -35,6 +35,7 @@ async function getSheetsClient(googleToken = null) {
 async function listSheets(spreadsheetId, googleToken = null) {
     const client = await getSheetsClient(googleToken);
 
+    console.log(`[Sheets] Fetching tabs for spreadsheet: ${spreadsheetId}`);
     const response = await client.spreadsheets.get({
         spreadsheetId,
         fields: 'properties,sheets.properties',
