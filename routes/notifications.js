@@ -36,7 +36,7 @@ router.post('/', async (req, res) => {
         const { secret, sheetName, sheetId, firstValue, message } = req.body;
 
         // Basic secret validation
-        if (!credentials.appsScriptSecret || secret !== credentials.appsScriptSecret) {
+        if (!credentials.apps_script_secret || secret !== credentials.apps_script_secret) {
             console.warn(`[Notification] Invalid secret attempt: ${secret}`);
             return res.status(403).json({ error: 'Forbidden: invalid secret' });
         }
@@ -44,7 +44,7 @@ router.post('/', async (req, res) => {
         const title = `📊 ${sheetName}`;
         const body = `${firstValue} — ${message || 'New entry added'}`;
 
-        const tokens = getAllTokens();
+        const tokens = await getAllTokens();
         if (tokens.length === 0) {
             console.warn('[Notification] No registered device tokens to notify.');
             return res.json({ success: true, sent: 0, message: 'No devices registered' });

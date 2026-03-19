@@ -17,9 +17,9 @@ const app = express();
 // ─── Security ───────────────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({
-    origin: credentials.allowedOrigin,
+    origin: credentials.allowedOrigin === '*' ? true : credentials.allowedOrigin.split(','),
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
 }));
 
 // Rate limiting (all routes)

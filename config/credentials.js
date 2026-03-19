@@ -27,7 +27,8 @@ const credentials = {
     max: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
   },
 
-  appsScriptSecret: process.env.APPS_SCRIPT_SECRET || '',
+  apps_script_secret: process.env.APPS_SCRIPT_SECRET || '',
+  databaseUrl: process.env.DATABASE_URL || '',
 };
 
 module.exports = credentials;

@@ -20,7 +20,7 @@ router.post('/', authMiddleware, async (req, res) => {
         }
 
         const userId = req.user.uid;
-        registerToken(userId, token);
+        await registerToken(userId, token);
         console.log(`[Device] Token registered for user: ${userId}`);
         return res.json({ success: true, message: 'Device token registered' });
     } catch (err) {

@@ -1,84 +1,49 @@
-const fs = require('fs');
-const path = require('path');
-
-// Simple persistent device token store using a JSON file.
-const TOKENS_FILE = path.join(__dirname, '../data/tokens.json');
-
-// Ensure data directory exists
-const dataDir = path.dirname(TOKENS_FILE);
-if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-}
-
-let tokenStore = new Map(); // userId -> Set<token>
-
-// Load tokens from file on startup
-function loadTokens() {
-    try {
-        if (fs.existsSync(TOKENS_FILE)) {
-            const data = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8'));
-            for (const [userId, tokens] of Object.entries(data)) {
-                tokenStore.set(userId, new Set(tokens));
-            }
-            console.log(`[TokenStore] Loaded ${tokenStore.size} users from persistent storage`);
-        }
-    } catch (err) {
-        console.error('[TokenStore] Failed to load tokens:', err.message);
-    }
-}
-
-// Save tokens to file
-function saveTokens() {
-    try {
-        const data = {};
-        for (const [userId, tokens] of tokenStore.entries()) {
-            data[userId] = Array.from(tokens);
-        }
-        fs.writeFileSync(TOKENS_FILE, JSON.stringify(data, null, 2));
-    } catch (err) {
-        console.error('[TokenStore] Failed to save tokens:', err.message);
-    }
-}
-
-loadTokens();
+const db = require('./db');
 
 /**
  * Register an FCM token for a user.
  * @param {string} userId
  * @param {string} token
  */
-function registerToken(userId, token) {
-    if (!tokenStore.has(userId)) {
-        tokenStore.set(userId, new Set());
-    }
-    const userTokens = tokenStore.get(userId);
-    if (!userTokens.has(token)) {
-        userTokens.add(token);
-        saveTokens();
-        console.log(`[TokenStore] Registered new token for user ${userId}`);
+async function registerToken(userId, token) {
+    try {
+        await db.query(
+            'INSERT INTO fcm_tokens (user_id, token) VALUES ($1, $2) ON CONFLICT (user_id, token) DO NOTHING',
+            [userId, token]
+        );
+        console.log(`[TokenStore] Registered token for user ${userId}`);
+    } catch (err) {
+        console.error('[TokenStore] Failed to register token:', err.message);
     }
 }
 
 /**
  * Get all FCM tokens stored for a user.
  * @param {string} userId
- * @returns {string[]}
+ * @returns {Promise<string[]>}
  */
-function getTokensForUser(userId) {
-    const set = tokenStore.get(userId);
-    return set ? Array.from(set) : [];
+async function getTokensForUser(userId) {
+    try {
+        const res = await db.query('SELECT token FROM fcm_tokens WHERE user_id = $1', [userId]);
+        return res.rows.map(r => r.token);
+    } catch (err) {
+        console.error('[TokenStore] Failed to get tokens for user:', err.message);
+        return [];
+    }
 }
 
 /**
  * Get all registered tokens (useful for broadcast).
- * @returns {string[]}
+ * @returns {Promise<string[]>}
  */
-function getAllTokens() {
-    const all = [];
-    for (const tokens of tokenStore.values()) {
-        all.push(...Array.from(tokens));
+async function getAllTokens() {
+    try {
+        const res = await db.query('SELECT DISTINCT token FROM fcm_tokens');
+        return res.rows.map(r => r.token);
+    } catch (err) {
+        console.error('[TokenStore] Failed to get all tokens:', err.message);
+        return [];
     }
-    return [...new Set(all)]; // Ensure unique
 }
 
 /**
@@ -86,20 +51,16 @@ function getAllTokens() {
  * @param {string} userId
  * @param {string} token
  */
-function removeToken(userId, token) {
-    if (tokenStore.has(userId)) {
-        if (tokenStore.get(userId).delete(token)) {
-            saveTokens();
-            console.log(`[TokenStore] Removed token for user ${userId}`);
+async function removeToken(userId, token) {
+    try {
+        if (userId) {
+            await db.query('DELETE FROM fcm_tokens WHERE user_id = $1 AND token = $2', [userId, token]);
+        } else {
+            await db.query('DELETE FROM fcm_tokens WHERE token = $1', [token]);
         }
-    } else {
-        // Fallback: search all users if userId not provided correctly
-        for (const [uid, tokens] of tokenStore.entries()) {
-            if (tokens.delete(token)) {
-                saveTokens();
-                console.log(`[TokenStore] Removed token for user ${uid} (searched)`);
-            }
-        }
+        console.log(`[TokenStore] Removed token for ${userId || 'unknown user'}`);
+    } catch (err) {
+        console.error('[TokenStore] Failed to remove token:', err.message);
     }
 }
 
