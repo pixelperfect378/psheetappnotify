@@ -7,11 +7,13 @@ function initializeFirebase() {
     if (initialized) return;
 
     let serviceAccount;
-    if (credentials.firebase.serviceAccountPath) {
+    if (credentials.firebase.serviceAccountJson) {
+        serviceAccount = credentials.firebase.serviceAccountJson;
+    } else if (credentials.firebase.serviceAccountPath) {
         serviceAccount = require(credentials.firebase.serviceAccountPath);
     } else {
         throw new Error(
-            'Firebase service account not configured. Set FIREBASE_SERVICE_ACCOUNT_PATH in .env'
+            'Firebase service account not configured. Set FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT_PATH in .env'
         );
     }
 

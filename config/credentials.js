@@ -19,6 +19,9 @@ const credentials = {
     serviceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH
       ? path.resolve(process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
       : null,
+    serviceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
+      : null,
     projectId: process.env.FIREBASE_PROJECT_ID || '',
   },
 
