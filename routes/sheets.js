@@ -145,4 +145,42 @@ router.get('/:id/meta', async (req, res) => {
     }
 });
 
+const { addWatch, removeWatch } = require('../services/watcherService');
+
+/**
+ * POST /sheets/watch
+ * Registers a sheet for real-time monitoring.
+ */
+router.post('/watch', async (req, res) => {
+    try {
+        const { spreadsheetId, sheetTitle } = req.body;
+        const userId = req.user.uid;
+        if (!spreadsheetId || !sheetTitle) {
+            return res.status(400).json({ error: 'spreadsheetId and sheetTitle are required' });
+        }
+
+        const watch = await addWatch(userId, spreadsheetId, sheetTitle);
+        return res.json({ success: true, data: watch });
+    } catch (err) {
+        console.error('[Sheets] watch error:', err.message);
+        return res.status(500).json({ error: 'Failed to register watch', detail: err.message });
+    }
+});
+
+/**
+ * POST /sheets/unwatch
+ * Unregisters a sheet from monitoring.
+ */
+router.post('/unwatch', async (req, res) => {
+    try {
+        const { spreadsheetId, sheetTitle } = req.body;
+        const userId = req.user.uid;
+        await removeWatch(userId, spreadsheetId, sheetTitle);
+        return res.json({ success: true, message: 'Watch removed' });
+    } catch (err) {
+        console.error('[Sheets] unwatch error:', err.message);
+        return res.status(500).json({ error: 'Failed to remove watch', detail: err.message });
+    }
+});
+
 module.exports = router;

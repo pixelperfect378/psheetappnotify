@@ -49,8 +49,7 @@ async function sendPushNotification(token, notification, data = {}) {
             priority: 'high',
             notification: {
                 channelId: 'sheet_updates',
-                sound: 'default',
-                clickAction: 'OPEN_NOTIFICATION_CENTER',
+                sound: 'default'
             },
         },
     };

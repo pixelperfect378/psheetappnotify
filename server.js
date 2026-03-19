@@ -37,6 +37,15 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
 app.use(morgan(credentials.nodeEnv === 'production' ? 'combined' : 'dev'));
 
+// Custom Request Logger for Debugging
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - IP: ${req.ip}`);
+    if (Object.keys(req.headers).length > 0) {
+        console.log('Headers:', JSON.stringify(req.headers));
+    }
+    next();
+});
+
 // ─── Health Check ───────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
     res.json({
@@ -70,8 +79,13 @@ app.use((err, req, res, _next) => {
 // ─── Start ───────────────────────────────────────────────────────────────────
 const PORT = credentials.port;
 const HOST = '0.0.0.0'; // Bind to all interfaces (external access)
+
+// Initialize Watcher Service
+const { startWatching } = require('./services/watcherService');
+startWatching(60000); // Poll every minute
+
 app.listen(PORT, HOST, () => {
-    console.log(`✅ SheetNotify backend running on http://${credentials.host || '10.100.192.215'}:${PORT} [${credentials.nodeEnv}]`);
+    console.log(`✅ SheetNotify backend running on http://10.76.45.24:${PORT} [${credentials.nodeEnv}]`);
 });
 
 module.exports = app;
