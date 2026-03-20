@@ -65,16 +65,16 @@ router.post('/google/sync', authMiddleware, async (req, res) => {
     const { access_token, refresh_token, expiry_date } = tokens;
     const tokenExpiry = expiry_date ? new Date(expiry_date) : null;
 
-    // Use the same UPSERT logic as callback
-    // We update ALL entries for this user in watched_sheets
+    // We UPSERT into user_google_tokens
     await db.query(`
-      UPDATE watched_sheets 
-      SET 
-        access_token = $1, 
-        refresh_token = COALESCE($2, refresh_token), 
-        token_expiry = $3 
-      WHERE user_id = $4
-    `, [access_token, refresh_token, tokenExpiry, userId]);
+      INSERT INTO user_google_tokens (user_id, access_token, refresh_token, token_expiry)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (user_id) DO UPDATE SET
+        access_token = EXCLUDED.access_token,
+        refresh_token = COALESCE(EXCLUDED.refresh_token, user_google_tokens.refresh_token),
+        token_expiry = EXCLUDED.token_expiry,
+        updated_at = CURRENT_TIMESTAMP
+    `, [userId, access_token, refresh_token, tokenExpiry]);
 
     res.json({ success: true, message: 'Tokens synced successfully' });
   } catch (error) {
@@ -97,23 +97,18 @@ router.get('/google/callback', async (req, res) => {
     console.log('[Auth] Received tokens for user:', userId);
 
     const { access_token, refresh_token, expiry_date } = tokens;
-    
-    // Save tokens into watched_sheets (or a dedicated users table if preferred)
-    // Here we UPSERT based on user_id. 
-    // Note: In a real app, you might want a separate 'user_tokens' table.
-    // For now, we'll update all entries for this user in watched_sheets.
-    
+    // Save tokens into user_google_tokens
     const tokenExpiry = expiry_date ? new Date(expiry_date) : null;
 
-    // Use a transaction or a simple update
     await db.query(`
-      UPDATE watched_sheets 
-      SET 
-        access_token = $1, 
-        refresh_token = COALESCE($2, refresh_token), 
-        token_expiry = $3 
-      WHERE user_id = $4
-    `, [access_token, refresh_token, tokenExpiry, userId]);
+      INSERT INTO user_google_tokens (user_id, access_token, refresh_token, token_expiry)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (user_id) DO UPDATE SET
+        access_token = EXCLUDED.access_token,
+        refresh_token = COALESCE(EXCLUDED.refresh_token, user_google_tokens.refresh_token),
+        token_expiry = EXCLUDED.token_expiry,
+        updated_at = CURRENT_TIMESTAMP
+    `, [userId, access_token, refresh_token, tokenExpiry]);
 
     // If no records updated, it means the user hasn't watched any sheets yet.
     // That's fine, the tokens will be useful once they do.

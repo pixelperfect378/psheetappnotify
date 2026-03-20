@@ -14,7 +14,7 @@ async function initDb() {
   try {
     await client.query('BEGIN');
 
-    // Tokens Table
+    // FCM Tokens Table
     await client.query(`
       CREATE TABLE IF NOT EXISTS fcm_tokens (
         id SERIAL PRIMARY KEY,
@@ -22,6 +22,17 @@ async function initDb() {
         token TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, token)
+      )
+    `);
+
+    // User Google Tokens Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_google_tokens (
+        user_id TEXT PRIMARY KEY,
+        access_token TEXT,
+        refresh_token TEXT,
+        token_expiry TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 

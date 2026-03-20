@@ -51,7 +51,7 @@ async function getSheetsClient(tokenData = null) {
  */
 async function getSheetsClientByUserId(userId) {
     const res = await db.query(
-        'SELECT access_token, refresh_token, token_expiry FROM watched_sheets WHERE user_id = $1 AND refresh_token IS NOT NULL LIMIT 1',
+        'SELECT access_token, refresh_token, token_expiry FROM user_google_tokens WHERE user_id = $1 AND refresh_token IS NOT NULL LIMIT 1',
         [userId]
     );
 
@@ -81,10 +81,11 @@ async function getSheetsClientByUserId(userId) {
         const expiryDate = expiry_date ? new Date(expiry_date) : null;
 
         await db.query(`
-            UPDATE watched_sheets 
+            UPDATE user_google_tokens 
             SET access_token = $1, 
                 refresh_token = COALESCE($2, refresh_token), 
-                token_expiry = COALESCE($3, token_expiry)
+                token_expiry = COALESCE($3, token_expiry),
+                updated_at = CURRENT_TIMESTAMP
             WHERE user_id = $4
         `, [access_token, refresh_token, expiryDate, userId]);
     });
@@ -97,16 +98,25 @@ async function getSheetsClientByUserId(userId) {
  */
 async function getDriveClientByUserId(userId) {
     const res = await db.query(
-        'SELECT access_token, refresh_token, token_expiry FROM watched_sheets WHERE user_id = $1 AND refresh_token IS NOT NULL LIMIT 1',
+        'SELECT access_token, refresh_token, token_expiry FROM user_google_tokens WHERE user_id = $1 AND refresh_token IS NOT NULL LIMIT 1',
         [userId]
     );
 
     let auth;
     if (res.rows.length === 0) {
-        auth = new google.auth.GoogleAuth({
-            credentials: credentials.google.serviceAccountJson,
-            scopes: ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file'],
-        });
+        if (credentials.google.serviceAccountJson) {
+            auth = new google.auth.GoogleAuth({
+                credentials: credentials.google.serviceAccountJson,
+                scopes: ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file'],
+            });
+        } else if (credentials.google.serviceAccountPath) {
+            auth = new google.auth.GoogleAuth({
+                keyFile: credentials.google.serviceAccountPath,
+                scopes: ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file'],
+            });
+        } else {
+            throw new Error('Google service account not configured and no user tokens found.');
+        }
     } else {
         const { access_token, refresh_token, token_expiry } = res.rows[0];
         const oauth2Client = new google.auth.OAuth2(

@@ -13,6 +13,9 @@ router.use((req, res, next) => {
 
 router.get('/test-health', (req, res) => res.json({ status: 'ok', serverTime: new Date() }));
 
+// All sheet routes require a valid Firebase token
+router.use(authMiddleware);
+
 /**
  * GET /drive-sheets
  * Header: x-google-token: <Google OAuth access token>
@@ -49,10 +52,6 @@ router.get('/drive-sheets', async (req, res) => {
     }
 });
 
-
-
-// All sheet routes require a valid Firebase token
-router.use(authMiddleware);
 
 
 /**
