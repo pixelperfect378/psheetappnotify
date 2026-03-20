@@ -183,6 +183,8 @@ const db = require('../services/db');
  */
 router.post('/create', async (req, res) => {
     try {
+        console.log("BODY:", req.body); // debug
+
         const googleToken = req.headers['x-google-token'];
         const userId = req.user.uid;
         const authData = googleToken || userId;
