@@ -24,8 +24,8 @@ const oauth2Client = new google.auth.OAuth2(
 router.get('/google', (req, res) => {
   const scopes = [
     'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/spreadsheets.readonly',
-    'https://www.googleapis.com/auth/drive.readonly'
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive.file'
   ];
 
   const url = oauth2Client.generateAuthUrl({

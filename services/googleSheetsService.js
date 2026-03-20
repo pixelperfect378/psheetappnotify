@@ -26,12 +26,12 @@ async function getSheetsClient(tokenData = null) {
     } else if (credentials.google.serviceAccountJson) {
         auth = new google.auth.GoogleAuth({
             credentials: credentials.google.serviceAccountJson,
-            scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+            scopes: ['https://www.googleapis.com/auth/spreadsheets'],
         });
     } else if (credentials.google.serviceAccountPath) {
         auth = new google.auth.GoogleAuth({
             keyFile: credentials.google.serviceAccountPath,
-            scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+            scopes: ['https://www.googleapis.com/auth/spreadsheets'],
         });
     } else {
         throw new Error('Google service account not configured.');
