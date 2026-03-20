@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { listSheets, getSheetMeta, getSheetData, getDriveClientByUserId } = require('../services/googleSheetsService');
+const { listSheets, getSheetMeta, getSheetData, getDriveClientByUserId, createSpreadsheet, appendRow, addSheet } = require('../services/googleSheetsService');
+const { isMock, listMockDriveSheets, listMockTabs, getMockSheetData, appendMockRow } = require('../services/mockDataService');
 const authMiddleware = require('../middleware/authMiddleware');
 const https = require('https');
 
@@ -26,26 +27,34 @@ router.get('/drive-sheets', async (req, res) => {
     const userId = req.user?.uid;
 
     try {
-        let drive;
-        if (googleToken) {
-            const { google } = require('googleapis');
-            const auth = new google.auth.OAuth2();
-            auth.setCredentials({ access_token: googleToken });
-            drive = google.drive({ version: 'v3', auth });
-        } else if (userId) {
-            drive = await getDriveClientByUserId(userId);
-        } else {
-            return res.status(401).json({ error: 'Authentication required' });
+        let driveFiles = [];
+        try {
+            let drive;
+            if (googleToken) {
+                const { google } = require('googleapis');
+                const auth = new google.auth.OAuth2();
+                auth.setCredentials({ access_token: googleToken });
+                drive = google.drive({ version: 'v3', auth });
+            } else if (userId) {
+                drive = await getDriveClientByUserId(userId);
+            }
+
+            if (drive) {
+                const response = await drive.files.list({
+                    q: "mimeType='application/vnd.google-apps.spreadsheet'",
+                    fields: "files(id,name)",
+                    pageSize: 100,
+                    orderBy: "modifiedTime desc"
+                });
+                driveFiles = response.data.files || [];
+            }
+        } catch (driveErr) {
+            console.warn('[Sheets] drive-sheets real fetch failed, using only mock data:', driveErr.message);
         }
 
-        const response = await drive.files.list({
-            q: "mimeType='application/vnd.google-apps.spreadsheet'",
-            fields: "files(id,name)",
-            pageSize: 100,
-            orderBy: "modifiedTime desc"
-        });
-
-        return res.json({ success: true, data: response.data.files || [] });
+        const mockFiles = await listMockDriveSheets();
+        // Return both real and mock files for demo purposes
+        return res.json({ success: true, data: [...driveFiles, ...mockFiles] });
     } catch (err) {
         console.error('[Sheets] drive-sheets error:', err.message);
         return res.status(500).json({ error: 'Failed to fetch drive sheets', detail: err.message });
@@ -67,6 +76,11 @@ router.get('/', async (req, res) => {
         const authData = req.user?.uid;
         if (!spreadsheetId) {
             return res.status(400).json({ error: 'spreadsheetId query parameter is required' });
+        }
+
+        if (isMock(spreadsheetId)) {
+            const sheets = await listMockTabs(spreadsheetId);
+            return res.json({ success: true, data: sheets });
         }
 
         const sheets = await listSheets(spreadsheetId, authData);
@@ -98,6 +112,12 @@ router.get('/:id', async (req, res) => {
         }
         const [spreadsheetId, ...titleParts] = parts;
         const sheetTitle = titleParts.join('|');
+
+        if (isMock(spreadsheetId)) {
+            const data = await getMockSheetData(spreadsheetId, sheetTitle, 
+                parseInt(req.query.page || '1'), parseInt(req.query.pageSize || '50'));
+            return res.json({ success: true, data });
+        }
 
         const page = Math.max(1, parseInt(req.query.page || '1', 10));
         const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize || '50', 10)));
@@ -173,9 +193,7 @@ router.post('/unwatch', async (req, res) => {
     }
 });
 
-const { createSpreadsheet, appendRow } = require('../services/googleSheetsService');
-const { v4: uuidv4 } = require('uuid');
-const db = require('../services/db');
+const { createSpreadsheet, appendRow, addSheet } = require('../services/googleSheetsService');
 
 /**
  * POST /sheets/create
@@ -221,6 +239,31 @@ router.post('/create', async (req, res) => {
 });
 
 /**
+ * POST /sheets/rules
+ * Update notification rules for a specific sheet.
+ */
+router.post('/rules', async (req, res) => {
+    try {
+        const { spreadsheetId, sheetTitle, rules } = req.body;
+        const userId = req.user.uid;
+
+        if (!spreadsheetId || !sheetTitle || !Array.isArray(rules)) {
+            return res.status(400).json({ error: 'spreadsheetId, sheetTitle and rules (array) are required' });
+        }
+
+        await db.query(
+            'UPDATE watched_sheets SET rules = $1 WHERE user_id = $2 AND spreadsheet_id = $3 AND sheet_title = $4',
+            [JSON.stringify(rules), userId, spreadsheetId, sheetTitle]
+        );
+
+        return res.json({ success: true, message: 'Notification rules updated' });
+    } catch (err) {
+        console.error('[Sheets] rules update error:', err.message);
+        return res.status(500).json({ error: 'Failed to update rules', detail: err.message });
+    }
+});
+
+/**
  * POST /sheet/:id/append
  * Appends a row to the specified sheet.
  */
@@ -241,6 +284,11 @@ router.post('/:id/append', async (req, res) => {
 
         const [spreadsheetId, ...titleParts] = parts;
         const sheetTitle = titleParts.join('|');
+
+        if (isMock(spreadsheetId)) {
+            const result = await appendMockRow(spreadsheetId, sheetTitle, values);
+            return res.json({ success: true, data: result });
+        }
 
         const result = await appendRow(spreadsheetId, sheetTitle, values, authData);
         return res.json({ success: true, data: result });

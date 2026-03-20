@@ -4,15 +4,36 @@ const { sendMulticast } = require('./firebaseService');
 const db = require('./db');
 
 /**
- * Add a sheet to the watch list.
- * @param {string} userId 
- * @param {string} spreadsheetId 
- * @param {string} sheetTitle 
- * @param {object} tokenData - { access_token, refresh_token, expiry_date }
+ * Evaluate if a row matches any of the custom rules.
+ * @param {string[]} headers 
+ * @param {string[]} row 
+ * @param {object[]} rules - [{ column, operator, value }]
  */
-async function addWatch(userId, spreadsheetId, sheetTitle, tokenData = {}) {
+function evaluateRules(headers, row, rules) {
+    if (!rules || !Array.isArray(rules) || rules.length === 0) return true; // Default: notify on all new rows
+
+    return rules.some(rule => {
+        const colIndex = headers.indexOf(rule.column);
+        if (colIndex === -1) return false;
+
+        const cellValue = row[colIndex];
+        const ruleValue = rule.value;
+
+        switch (rule.operator) {
+            case '>': return parseFloat(cellValue) > parseFloat(ruleValue);
+            case '<': return parseFloat(cellValue) < parseFloat(ruleValue);
+            case '===': return String(cellValue) === String(ruleValue);
+            case 'contains': return String(cellValue).toLowerCase().includes(String(ruleValue).toLowerCase());
+            default: return false;
+        }
+    });
+}
+
+/**
+ * Add a sheet to the watch list.
+ */
+async function addWatch(userId, spreadsheetId, sheetTitle, tokenData = {}, rules = []) {
     try {
-        // Use userId (if tokens stored) or provided token
         const authData = tokenData.access_token || userId;
         const meta = await getSheetMeta(spreadsheetId, sheetTitle, authData);
         
@@ -20,17 +41,18 @@ async function addWatch(userId, spreadsheetId, sheetTitle, tokenData = {}) {
 
         const res = await db.query(
             `INSERT INTO watched_sheets 
-             (user_id, spreadsheet_id, sheet_title, last_row_count, access_token, refresh_token, token_expiry)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             (user_id, spreadsheet_id, sheet_title, last_row_count, access_token, refresh_token, token_expiry, rules)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (user_id, spreadsheet_id, sheet_title) 
              DO UPDATE SET 
                 last_row_count = EXCLUDED.last_row_count, 
                 access_token = EXCLUDED.access_token,
                 refresh_token = COALESCE(EXCLUDED.refresh_token, watched_sheets.refresh_token),
                 token_expiry = EXCLUDED.token_expiry,
+                rules = COALESCE(EXCLUDED.rules, watched_sheets.rules),
                 last_check = CURRENT_TIMESTAMP
              RETURNING *`,
-            [userId, spreadsheetId, sheetTitle, meta.totalRows, tokenData.access_token, tokenData.refresh_token, tokenExpiry]
+            [userId, spreadsheetId, sheetTitle, meta.totalRows, tokenData.access_token, tokenData.refresh_token, tokenExpiry, JSON.stringify(rules)]
         );
         
         console.log(`[Watcher] Added/Updated watch for user ${userId}: ${sheetTitle}`);
@@ -70,13 +92,21 @@ async function checkSheets() {
         
         for (const watch of watchedSheets) {
             try {
-                // Simplified: just pass userId, the service handles token fetch/refresh
                 const meta = await getSheetMeta(watch.spreadsheet_id, watch.sheet_title, watch.user_id);
 
                 if (meta.totalRows > watch.last_row_count) {
                     console.log(`[Watcher] New rows detected in ${watch.sheet_title} (${watch.spreadsheet_id})`);
 
                     const newlyAddedCount = meta.totalRows - watch.last_row_count;
+                    
+                    // NEW: Fetch headers and new data to evaluate rules
+                    const data = await getSheetData(watch.spreadsheet_id, watch.sheet_title, 1, newlyAddedCount, watch.user_id);
+                    // newlyAddedRows will be at the end of the total set
+                    // But getSheetData with page 1 gets top rows? No, we need latest rows.
+                    // Let's assume new rows are appended at end. we need to fetch rows from last_row_count+1 to meta.totalRows.
+                    
+                    const rules = watch.rules || [];
+                    const matchingRows = data.rows.filter(row => evaluateRules(data.headers, row, rules));
 
                     // Update watch state in DB
                     await db.query(
@@ -84,17 +114,19 @@ async function checkSheets() {
                         [meta.totalRows, watch.id]
                     );
 
-                    // Send notifications
-                    const tokens = await getTokensForUser(watch.user_id);
-                    if (tokens.length > 0) {
-                        await sendMulticast(tokens, {
-                            title: `New Entry in ${watch.sheet_title}`,
-                            body: `Added ${newlyAddedCount} new row(s).`,
-                        }, {
-                            sheetId: watch.spreadsheet_id,
-                            sheetName: watch.sheet_title,
-                            type: 'SHEET_UPDATE',
-                        });
+                    if (matchingRows.length > 0) {
+                        // Send notifications only if rules match
+                        const tokens = await getTokensForUser(watch.user_id);
+                        if (tokens.length > 0) {
+                            await sendMulticast(tokens, {
+                                title: `🎯 Custom Alert: ${watch.sheet_title}`,
+                                body: `Detected ${matchingRows.length} matching entries.`,
+                            }, {
+                                sheetId: watch.spreadsheet_id,
+                                sheetName: watch.sheet_title,
+                                type: 'SHEET_UPDATE',
+                            });
+                        }
                     }
                 } else {
                     await db.query('UPDATE watched_sheets SET last_check = CURRENT_TIMESTAMP WHERE id = $1', [watch.id]);

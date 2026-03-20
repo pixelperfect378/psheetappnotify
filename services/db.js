@@ -49,6 +49,7 @@ async function initDb() {
         refresh_token TEXT,
         token_expiry TIMESTAMP,
         api_key TEXT UNIQUE,
+        rules JSONB DEFAULT '[]',
         UNIQUE(user_id, spreadsheet_id, sheet_title)
       )
     `);

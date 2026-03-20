@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
 const credentials = require('../config/credentials');
 const db = require('./db');
+const mockDataService = require('./mockDataService');
 
 let sheetsClient = null;
 
@@ -178,6 +179,16 @@ async function listSheets(spreadsheetId, authData = null) {
  * Get metadata for a specific sheet (tab) in a spreadsheet.
  */
 async function getSheetMeta(spreadsheetId, sheetTitle, authData = null) {
+    if (mockDataService.isMock(spreadsheetId)) {
+        const mockData = await mockDataService.getMockSheetData(spreadsheetId, sheetTitle);
+        return {
+            spreadsheetId,
+            sheetTitle,
+            headers: mockData.headers,
+            columnCount: mockData.headers.length,
+            totalRows: mockData.totalRows
+        };
+    }
     const client = await getSheetsClientInternal(authData);
 
     // Fetch only a single row for headers
@@ -212,6 +223,9 @@ async function getSheetMeta(spreadsheetId, sheetTitle, authData = null) {
  * Returns { headers, rows, totalRows }
  */
 async function getSheetData(spreadsheetId, sheetTitle, page = 1, pageSize = 50, authData = null) {
+    if (mockDataService.isMock(spreadsheetId)) {
+        return mockDataService.getMockSheetData(spreadsheetId, sheetTitle, page, pageSize);
+    }
     const client = await getSheetsClientInternal(authData);
 
     // Dynamic range — let Sheets API determine the last column
