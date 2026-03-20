@@ -186,11 +186,9 @@ router.post('/create', async (req, res) => {
         const googleToken = req.headers['x-google-token'];
         const userId = req.user.uid;
         const authData = googleToken || userId;
-        const { title, headers } = req.body;
-
-        if (!title) {
-            return res.status(400).json({ error: 'Spreadsheet title is required' });
-        }
+        
+        const title = req.body?.title || "Default Sheet";
+        const headers = req.body?.headers || [];
 
         const newSheet = await createSpreadsheet(title, headers, authData);
         
