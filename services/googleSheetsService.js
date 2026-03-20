@@ -197,11 +197,12 @@ async function createSpreadsheet(title, headers = [], googleToken = null) {
 
     const response = await client.spreadsheets.create({
         resource,
-        fields: 'spreadsheetId,properties.title,sheets.properties',
+        fields: 'spreadsheetId,spreadsheetUrl,properties.title,sheets.properties',
     });
 
     return {
         spreadsheetId: response.data.spreadsheetId,
+        spreadsheetUrl: response.data.spreadsheetUrl,
         title: response.data.properties.title,
         sheets: response.data.sheets.map((s) => ({
             sheetId: s.properties.sheetId,
