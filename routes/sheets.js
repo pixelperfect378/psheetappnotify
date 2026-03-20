@@ -186,6 +186,7 @@ router.post('/create', async (req, res) => {
         const googleToken = req.headers['x-google-token'];
         const userId = req.user.uid;
         const authData = googleToken || userId;
+        const { title, headers } = req.body;
 
         if (!title) {
             return res.status(400).json({ error: 'Spreadsheet title is required' });
@@ -215,6 +216,7 @@ router.post('/:id/append', async (req, res) => {
         const userId = req.user?.uid;
         const authData = googleToken || userId;
         const { values } = req.body;
+        const parts = decodeURIComponent(req.params.id).split('|');
 
         if (parts.length < 2) {
             return res.status(400).json({ error: 'Invalid sheet ID format' });
