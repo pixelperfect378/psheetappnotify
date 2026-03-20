@@ -159,7 +159,8 @@ router.post('/watch', async (req, res) => {
             return res.status(400).json({ error: 'spreadsheetId and sheetTitle are required' });
         }
 
-        const watch = await addWatch(userId, spreadsheetId, sheetTitle);
+        const googleToken = req.headers['x-google-token'];
+        const watch = await addWatch(userId, spreadsheetId, sheetTitle, { access_token: googleToken });
         return res.json({ success: true, data: watch });
     } catch (err) {
         console.error('[Sheets] watch error:', err.message);

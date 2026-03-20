@@ -20,7 +20,11 @@ async function getSheetsClient(tokenData = null) {
         auth = oauth2Client;
     } else if (typeof tokenData === 'string') {
         // Legacy support for raw access token string
-        const oauth2Client = new google.auth.OAuth2();
+        const oauth2Client = new google.auth.OAuth2(
+            credentials.google.clientId,
+            credentials.google.clientSecret,
+            credentials.google.redirectUri
+        );
         oauth2Client.setCredentials({ access_token: tokenData });
         auth = oauth2Client;
     } else if (credentials.google.serviceAccountJson) {

@@ -8,19 +8,28 @@ const db = require('./db');
  * @param {string} userId 
  * @param {string} spreadsheetId 
  * @param {string} sheetTitle 
+ * @param {object} tokenData - { access_token, refresh_token, expiry_date }
  */
-async function addWatch(userId, spreadsheetId, sheetTitle) {
+async function addWatch(userId, spreadsheetId, sheetTitle, tokenData = {}) {
     try {
-        // Get initial row count
-        const meta = await getSheetMeta(spreadsheetId, sheetTitle);
+        // Get initial row count using the provided token
+        const meta = await getSheetMeta(spreadsheetId, sheetTitle, tokenData.access_token);
         
+        const tokenExpiry = tokenData.expiry_date ? new Date(tokenData.expiry_date) : null;
+
         const res = await db.query(
-            `INSERT INTO watched_sheets (user_id, spreadsheet_id, sheet_title, last_row_count)
-             VALUES ($1, $2, $3, $4)
+            `INSERT INTO watched_sheets 
+             (user_id, spreadsheet_id, sheet_title, last_row_count, access_token, refresh_token, token_expiry)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (user_id, spreadsheet_id, sheet_title) 
-             DO UPDATE SET last_row_count = EXCLUDED.last_row_count, last_check = CURRENT_TIMESTAMP
+             DO UPDATE SET 
+                last_row_count = EXCLUDED.last_row_count, 
+                access_token = EXCLUDED.access_token,
+                refresh_token = COALESCE(EXCLUDED.refresh_token, watched_sheets.refresh_token),
+                token_expiry = EXCLUDED.token_expiry,
+                last_check = CURRENT_TIMESTAMP
              RETURNING *`,
-            [userId, spreadsheetId, sheetTitle, meta.totalRows]
+            [userId, spreadsheetId, sheetTitle, meta.totalRows, tokenData.access_token, tokenData.refresh_token, tokenExpiry]
         );
         
         console.log(`[Watcher] Added/Updated watch for user ${userId}: ${sheetTitle}`);
