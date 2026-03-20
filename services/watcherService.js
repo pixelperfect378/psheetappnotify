@@ -12,8 +12,9 @@ const db = require('./db');
  */
 async function addWatch(userId, spreadsheetId, sheetTitle, tokenData = {}) {
     try {
-        // Get initial row count using the provided token
-        const meta = await getSheetMeta(spreadsheetId, sheetTitle, tokenData.access_token);
+        // Use userId (if tokens stored) or provided token
+        const authData = tokenData.access_token || userId;
+        const meta = await getSheetMeta(spreadsheetId, sheetTitle, authData);
         
         const tokenExpiry = tokenData.expiry_date ? new Date(tokenData.expiry_date) : null;
 
@@ -69,14 +70,8 @@ async function checkSheets() {
         
         for (const watch of watchedSheets) {
             try {
-                // Pass the stored tokens (access, refresh, expiry) to the service
-                const tokenData = {
-                    access_token: watch.access_token,
-                    refresh_token: watch.refresh_token,
-                    expiry_date: watch.token_expiry ? new Date(watch.token_expiry).getTime() : null
-                };
-
-                const meta = await getSheetMeta(watch.spreadsheet_id, watch.sheet_title, tokenData);
+                // Simplified: just pass userId, the service handles token fetch/refresh
+                const meta = await getSheetMeta(watch.spreadsheet_id, watch.sheet_title, watch.user_id);
 
                 if (meta.totalRows > watch.last_row_count) {
                     console.log(`[Watcher] New rows detected in ${watch.sheet_title} (${watch.spreadsheet_id})`);

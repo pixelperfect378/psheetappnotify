@@ -1,5 +1,6 @@
 const { google } = require('googleapis');
 const credentials = require('../config/credentials');
+const db = require('./db');
 
 let sheetsClient = null;
 
@@ -45,11 +46,103 @@ async function getSheetsClient(tokenData = null) {
 }
 
 /**
+ * Get an authorized Sheets client for a specific user from stored tokens.
+ * Handles auto-refresh of tokens.
+ */
+async function getSheetsClientByUserId(userId) {
+    const res = await db.query(
+        'SELECT access_token, refresh_token, token_expiry FROM watched_sheets WHERE user_id = $1 AND refresh_token IS NOT NULL LIMIT 1',
+        [userId]
+    );
+
+    if (res.rows.length === 0) {
+        // Fallback to service account if no user tokens found
+        return getSheetsClient(null);
+    }
+
+    const { access_token, refresh_token, token_expiry } = res.rows[0];
+    
+    const oauth2Client = new google.auth.OAuth2(
+        credentials.google.clientId,
+        credentials.google.clientSecret,
+        credentials.google.redirectUri
+    );
+
+    oauth2Client.setCredentials({
+        access_token,
+        refresh_token,
+        expiry_date: token_expiry ? new Date(token_expiry).getTime() : null
+    });
+
+    // Handle token refresh events
+    oauth2Client.on('tokens', async (tokens) => {
+        console.log(`[Sheets] Tokens refreshed for user ${userId}`);
+        const { access_token, refresh_token, expiry_date } = tokens;
+        const expiryDate = expiry_date ? new Date(expiry_date) : null;
+
+        await db.query(`
+            UPDATE watched_sheets 
+            SET access_token = $1, 
+                refresh_token = COALESCE($2, refresh_token), 
+                token_expiry = COALESCE($3, token_expiry)
+            WHERE user_id = $4
+        `, [access_token, refresh_token, expiryDate, userId]);
+    });
+
+    return google.sheets({ version: 'v4', auth: oauth2Client });
+}
+
+/**
+ * Get an authorized Drive client.
+ */
+async function getDriveClientByUserId(userId) {
+    const res = await db.query(
+        'SELECT access_token, refresh_token, token_expiry FROM watched_sheets WHERE user_id = $1 AND refresh_token IS NOT NULL LIMIT 1',
+        [userId]
+    );
+
+    let auth;
+    if (res.rows.length === 0) {
+        auth = new google.auth.GoogleAuth({
+            credentials: credentials.google.serviceAccountJson,
+            scopes: ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file'],
+        });
+    } else {
+        const { access_token, refresh_token, token_expiry } = res.rows[0];
+        const oauth2Client = new google.auth.OAuth2(
+            credentials.google.clientId,
+            credentials.google.clientSecret,
+            credentials.google.redirectUri
+        );
+        oauth2Client.setCredentials({
+            access_token,
+            refresh_token,
+            expiry_date: token_expiry ? new Date(token_expiry).getTime() : null
+        });
+        auth = oauth2Client;
+    }
+
+    return google.drive({ version: 'v3', auth });
+}
+
+async function getSheetsClientInternal(authData) {
+    if (authData && typeof authData === 'string' && authData.length > 50) {
+        // Assume it's a token
+        return getSheetsClient(authData);
+    } else if (authData && (typeof authData === 'string' || typeof authData === 'number')) {
+        // Assume it's a userId
+        return getSheetsClientByUserId(authData);
+    }
+    // Fallback to service account
+    return getSheetsClient(null);
+}
+
+/**
  * List sheets metadata for a given spreadsheet ID.
  * Returns array of { sheetId, title, index, rowCount, columnCount }
  */
-async function listSheets(spreadsheetId, googleToken = null) {
-    const client = await getSheetsClient(googleToken);
+async function listSheets(spreadsheetId, authData = null) {
+    const client = await getSheetsClientInternal(authData);
 
     console.log(`[Sheets] Fetching tabs for spreadsheet: ${spreadsheetId}`);
     const response = await client.spreadsheets.get({
@@ -74,8 +167,8 @@ async function listSheets(spreadsheetId, googleToken = null) {
 /**
  * Get metadata for a specific sheet (tab) in a spreadsheet.
  */
-async function getSheetMeta(spreadsheetId, sheetTitle, googleToken = null) {
-    const client = await getSheetsClient(googleToken);
+async function getSheetMeta(spreadsheetId, sheetTitle, authData = null) {
+    const client = await getSheetsClientInternal(authData);
 
     // Fetch only a single row for headers
     const headerRes = await client.spreadsheets.values.get({
@@ -108,8 +201,8 @@ async function getSheetMeta(spreadsheetId, sheetTitle, googleToken = null) {
  * Fetch sheet data with dynamic range detection (A1:Z).
  * Returns { headers, rows, totalRows }
  */
-async function getSheetData(spreadsheetId, sheetTitle, page = 1, pageSize = 50, googleToken = null) {
-    const client = await getSheetsClient(googleToken);
+async function getSheetData(spreadsheetId, sheetTitle, page = 1, pageSize = 50, authData = null) {
+    const client = await getSheetsClientInternal(authData);
 
     // Dynamic range — let Sheets API determine the last column
     const fullRange = `${sheetTitle}!A1:Z`;
@@ -167,12 +260,9 @@ async function getSheetData(spreadsheetId, sheetTitle, page = 1, pageSize = 50, 
 
 /**
  * Create a new Google Spreadsheet.
- * @param {string} title - The title of the new spreadsheet
- * @param {string[]} headers - Optional initial headers for the first sheet
- * @param {object} googleToken - OAuth token data
  */
-async function createSpreadsheet(title, headers = [], googleToken = null) {
-    const client = await getSheetsClient(googleToken);
+async function createSpreadsheet(title, headers = [], authData = null) {
+    const client = await getSheetsClientInternal(authData);
 
     const resource = {
         properties: { title },
@@ -217,13 +307,9 @@ async function createSpreadsheet(title, headers = [], googleToken = null) {
 
 /**
  * Append a row of data to a specific sheet.
- * @param {string} spreadsheetId
- * @param {string} range - Sheet name or A1 range (e.g. "Sheet1!A1")
- * @param {any[]} values - Array of values to insert
- * @param {object} googleToken - OAuth token data
  */
-async function appendRow(spreadsheetId, range, values, googleToken = null) {
-    const client = await getSheetsClient(googleToken);
+async function appendRow(spreadsheetId, range, values, authData = null) {
+    const client = await getSheetsClientInternal(authData);
 
     const response = await client.spreadsheets.values.append({
         spreadsheetId,
@@ -240,13 +326,9 @@ async function appendRow(spreadsheetId, range, values, googleToken = null) {
 
 /**
  * Add a new sheet (tab) to an existing spreadsheet.
- * @param {string} spreadsheetId
- * @param {string} title - The title of the new sheet
- * @param {string[]} headers - Optional initial headers for the new sheet
- * @param {object} googleToken - OAuth token data
  */
-async function addSheet(spreadsheetId, title, headers = [], googleToken = null) {
-    const client = await getSheetsClient(googleToken);
+async function addSheet(spreadsheetId, title, headers = [], authData = null) {
+    const client = await getSheetsClientInternal(authData);
 
     // 1. Add the sheet
     const addSheetRes = await client.spreadsheets.batchUpdate({
@@ -283,4 +365,13 @@ async function addSheet(spreadsheetId, title, headers = [], googleToken = null) 
     };
 }
 
-module.exports = { listSheets, getSheetMeta, getSheetData, createSpreadsheet, appendRow, addSheet };
+module.exports = {
+    listSheets,
+    getSheetMeta,
+    getSheetData,
+    createSpreadsheet,
+    appendRow,
+    addSheet,
+    getSheetsClientByUserId,
+    getDriveClientByUserId,
+};

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { listSheets, getSheetMeta, getSheetData } = require('../services/googleSheetsService');
+const { listSheets, getSheetMeta, getSheetData, getDriveClientByUserId } = require('../services/googleSheetsService');
 const authMiddleware = require('../middleware/authMiddleware');
 const https = require('https');
 
@@ -20,41 +20,33 @@ router.get('/test-health', (req, res) => res.json({ status: 'ok', serverTime: ne
  */
 router.get('/drive-sheets', async (req, res) => {
     const googleToken = req.headers['x-google-token'];
-    if (!googleToken) {
-        return res.status(400).json({ error: 'Missing x-google-token header' });
-    }
+    const userId = req.user?.uid;
 
-    const q = "mimeType='application/vnd.google-apps.spreadsheet'";
-    const fields = "files(id,name)";
-    const path = `/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&pageSize=100&orderBy=${encodeURIComponent("modifiedTime desc")}`;
+    try {
+        let drive;
+        if (googleToken) {
+            const { google } = require('googleapis');
+            const auth = new google.auth.OAuth2();
+            auth.setCredentials({ access_token: googleToken });
+            drive = google.drive({ version: 'v3', auth });
+        } else if (userId) {
+            drive = await getDriveClientByUserId(userId);
+        } else {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
 
-    const options = {
-        hostname: 'www.googleapis.com',
-        path: path,
-        method: 'GET',
-        headers: {
-            Authorization: `Bearer ${googleToken}`,
-        },
-    };
-
-    let data = '';
-    const driveReq = https.request(options, (driveRes) => {
-        driveRes.on('data', chunk => data += chunk);
-        driveRes.on('end', () => {
-            try {
-                const parsed = JSON.parse(data);
-                if (parsed.error) {
-                    console.error('[Drive API Error]', JSON.stringify(parsed.error, null, 2));
-                    return res.status(401).json({ error: parsed.error.message });
-                }
-                return res.json({ success: true, data: parsed.files || [] });
-            } catch (e) {
-                return res.status(500).json({ error: 'Failed to parse Drive response' });
-            }
+        const response = await drive.files.list({
+            q: "mimeType='application/vnd.google-apps.spreadsheet'",
+            fields: "files(id,name)",
+            pageSize: 100,
+            orderBy: "modifiedTime desc"
         });
-    });
-    driveReq.on('error', (e) => res.status(500).json({ error: e.message }));
-    driveReq.end();
+
+        return res.json({ success: true, data: response.data.files || [] });
+    } catch (err) {
+        console.error('[Sheets] drive-sheets error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch drive sheets', detail: err.message });
+    }
 });
 
 
@@ -73,12 +65,12 @@ router.use(authMiddleware);
 router.get('/', async (req, res) => {
     try {
         const { spreadsheetId } = req.query;
-        const googleToken = req.headers['x-google-token'];
+        const authData = googleToken || req.user?.uid;
         if (!spreadsheetId) {
             return res.status(400).json({ error: 'spreadsheetId query parameter is required' });
         }
 
-        const sheets = await listSheets(spreadsheetId, googleToken);
+        const sheets = await listSheets(spreadsheetId, authData);
         return res.json({ success: true, data: sheets });
     } catch (err) {
         console.error('[Sheets] listSheets error:', err.message);
@@ -99,7 +91,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
     try {
         const parts = decodeURIComponent(req.params.id).split('|');
-        const googleToken = req.headers['x-google-token'];
+        const authData = googleToken || req.user?.uid;
         if (parts.length < 2) {
             return res.status(400).json({
                 error: 'id must be URL-encoded "spreadsheetId|sheetTitle"',
@@ -111,7 +103,7 @@ router.get('/:id', async (req, res) => {
         const page = Math.max(1, parseInt(req.query.page || '1', 10));
         const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize || '50', 10)));
 
-        const data = await getSheetData(spreadsheetId, sheetTitle, page, pageSize, googleToken);
+        const data = await getSheetData(spreadsheetId, sheetTitle, page, pageSize, authData);
         return res.json({ success: true, data });
     } catch (err) {
         console.error('[Sheets] getSheetData error:', err.message);
@@ -127,17 +119,14 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/meta', async (req, res) => {
     try {
         const parts = decodeURIComponent(req.params.id).split('|');
-        const googleToken = req.headers['x-google-token'];
-        if (!googleToken) {
-            return res.status(400).json({ error: 'Missing x-google-token header' });
-        }
+        const authData = googleToken || req.user?.uid;
         if (parts.length < 2) {
             return res.status(400).json({ error: 'id must be "spreadsheetId|sheetTitle"' });
         }
         const [spreadsheetId, ...titleParts] = parts;
         const sheetTitle = titleParts.join('|');
 
-        const meta = await getSheetMeta(spreadsheetId, sheetTitle, googleToken);
+        const meta = await getSheetMeta(spreadsheetId, sheetTitle, authData);
         return res.json({ success: true, data: meta });
     } catch (err) {
         console.error('[Sheets] getSheetMeta error:', err.message);
@@ -160,6 +149,7 @@ router.post('/watch', async (req, res) => {
         }
 
         const googleToken = req.headers['x-google-token'];
+        // Pass userId if googleToken is missing - addWatch will use it
         const watch = await addWatch(userId, spreadsheetId, sheetTitle, { access_token: googleToken });
         return res.json({ success: true, data: watch });
     } catch (err) {
@@ -194,18 +184,19 @@ const db = require('../services/db');
  */
 router.post('/create', async (req, res) => {
     try {
-        const { title, headers } = req.body;
         const googleToken = req.headers['x-google-token'];
         const userId = req.user.uid;
+        const authData = googleToken || userId;
 
         if (!title) {
             return res.status(400).json({ error: 'Spreadsheet title is required' });
         }
 
-        const newSheet = await createSpreadsheet(title, headers, googleToken);
+        const newSheet = await createSpreadsheet(title, headers, authData);
         
         // Automatically watch the first sheet of the new spreadsheet
         const firstSheetTitle = newSheet.sheets[0].title;
+        // The watch will now use the stored tokens for this user
         await addWatch(userId, newSheet.spreadsheetId, firstSheetTitle);
 
         return res.json({ success: true, data: newSheet });
@@ -221,8 +212,9 @@ router.post('/create', async (req, res) => {
  */
 router.post('/:id/append', async (req, res) => {
     try {
-        const parts = decodeURIComponent(req.params.id).split('|');
         const googleToken = req.headers['x-google-token'];
+        const userId = req.user?.uid;
+        const authData = googleToken || userId;
         const { values } = req.body;
 
         if (parts.length < 2) {
@@ -235,7 +227,7 @@ router.post('/:id/append', async (req, res) => {
         const [spreadsheetId, ...titleParts] = parts;
         const sheetTitle = titleParts.join('|');
 
-        const result = await appendRow(spreadsheetId, sheetTitle, values, googleToken);
+        const result = await appendRow(spreadsheetId, sheetTitle, values, authData);
         return res.json({ success: true, data: result });
     } catch (err) {
         console.error('[Sheets] append error:', err.message);
@@ -293,12 +285,14 @@ router.post('/:spreadsheetId/add-sheet', async (req, res) => {
         const { spreadsheetId } = req.params;
         const { title, headers } = req.body;
         const googleToken = req.headers['x-google-token'];
+        const userId = req.user?.uid;
+        const authData = googleToken || userId;
 
         if (!title) {
             return res.status(400).json({ error: 'Sheet title is required' });
         }
 
-        const result = await addSheet(spreadsheetId, title, headers, googleToken);
+        const result = await addSheet(spreadsheetId, title, headers, authData);
         return res.json({ success: true, data: result });
     } catch (err) {
         console.error('[Sheets] addSheet error:', err.message);

@@ -42,6 +42,47 @@ router.get('/google', (req, res) => {
  * GET /auth/google/callback
  * Step 2: Handle redirect from Google, exchange code for tokens, and UPSERT into DB.
  */
+/**
+ * POST /auth/google/sync
+ * Step 3: Android app sends serverAuthCode, backend exchanges it and saves refresh_token.
+ */
+router.post('/google/sync', authMiddleware, async (req, res) => {
+  const { authCode } = req.body;
+  const userId = req.user.uid;
+
+  try {
+    if (!authCode) throw new Error('No authCode provided');
+
+    console.log('[Auth] Syncing Google tokens for user:', userId);
+    
+    // For serverAuthCode from Android, redirect_uri must be empty or 'postmessage' 
+    // depending on how it was requested.
+    const { tokens } = await oauth2Client.getToken({
+      code: authCode,
+      redirect_uri: 'postmessage' // Common for Android
+    });
+
+    const { access_token, refresh_token, expiry_date } = tokens;
+    const tokenExpiry = expiry_date ? new Date(expiry_date) : null;
+
+    // Use the same UPSERT logic as callback
+    // We update ALL entries for this user in watched_sheets
+    await db.query(`
+      UPDATE watched_sheets 
+      SET 
+        access_token = $1, 
+        refresh_token = COALESCE($2, refresh_token), 
+        token_expiry = $3 
+      WHERE user_id = $4
+    `, [access_token, refresh_token, tokenExpiry, userId]);
+
+    res.json({ success: true, message: 'Tokens synced successfully' });
+  } catch (error) {
+    console.error('[Auth] Sync error:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 router.get('/google/callback', async (req, res) => {
   const { code, state } = req.query;
   const userId = state; // We used state to pass userId in this example
