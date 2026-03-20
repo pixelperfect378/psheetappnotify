@@ -1,4 +1,5 @@
-const { getSheetMeta, getSheetData } = require('./googleSheetsService');
+const { getSheetMeta, getSheetsClientByUserId } = require('./googleSheetsService');
+const mockDataService = require('./mockDataService');
 const { getTokensForUser } = require('./tokenStore');
 const { sendMulticast } = require('./firebaseService');
 const db = require('./db');
@@ -98,15 +99,27 @@ async function checkSheets() {
                     console.log(`[Watcher] New rows detected in ${watch.sheet_title} (${watch.spreadsheet_id})`);
 
                     const newlyAddedCount = meta.totalRows - watch.last_row_count;
-                    
-                    // NEW: Fetch headers and new data to evaluate rules
-                    const data = await getSheetData(watch.spreadsheet_id, watch.sheet_title, 1, newlyAddedCount, watch.user_id);
-                    // newlyAddedRows will be at the end of the total set
-                    // But getSheetData with page 1 gets top rows? No, we need latest rows.
-                    // Let's assume new rows are appended at end. we need to fetch rows from last_row_count+1 to meta.totalRows.
+                    let newlyAddedRows = [];
+                    let headers = [];
+
+                    if (mockDataService.isMock(watch.spreadsheet_id)) {
+                        const mockData = await mockDataService.getMockSheetData(watch.spreadsheet_id, watch.sheet_title);
+                        headers = mockData.headers;
+                        newlyAddedRows = mockData.rows.slice(watch.last_row_count);
+                    } else {
+                        const client = await getSheetsClientByUserId(watch.user_id);
+                        const range = `${watch.sheet_title}!A${watch.last_row_count + 1}:Z${meta.totalRows}`;
+                        const response = await client.spreadsheets.values.get({
+                            spreadsheetId: watch.spreadsheet_id,
+                            range: range,
+                        });
+                        newlyAddedRows = response.data.values || [];
+                        const metaInfo = await getSheetMeta(watch.spreadsheet_id, watch.sheet_title, watch.user_id);
+                        headers = metaInfo.headers;
+                    }
                     
                     const rules = watch.rules || [];
-                    const matchingRows = data.rows.filter(row => evaluateRules(data.headers, row, rules));
+                    const matchingRows = newlyAddedRows.filter(row => evaluateRules(headers, row, rules));
 
                     // Update watch state in DB
                     await db.query(
