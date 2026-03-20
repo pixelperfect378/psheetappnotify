@@ -1,9 +1,11 @@
-const express = require('express');
-const router = express.Router();
 const { listSheets, getSheetMeta, getSheetData, getDriveClientByUserId, createSpreadsheet, appendRow, addSheet } = require('../services/googleSheetsService');
 const { isMock, listMockDriveSheets, listMockTabs, getMockSheetData, appendMockRow } = require('../services/mockDataService');
+const { addWatch, removeWatch } = require('../services/watcherService');
 const authMiddleware = require('../middleware/authMiddleware');
-const https = require('https');
+const crypto = require('crypto');
+const db = require('../services/db');
+const express = require('express');
+const router = express.Router();
 
 // ─── Drive Sheets (no service-account auth needed — uses user's token) ────────
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -153,7 +155,7 @@ router.get('/:id/meta', async (req, res) => {
     }
 });
 
-const { addWatch, removeWatch } = require('../services/watcherService');
+
 
 /**
  * POST /sheets/watch
@@ -193,7 +195,7 @@ router.post('/unwatch', async (req, res) => {
     }
 });
 
-const { createSpreadsheet, appendRow, addSheet } = require('../services/googleSheetsService');
+
 
 /**
  * POST /sheets/create
@@ -323,7 +325,7 @@ router.get('/:id/api-key', async (req, res) => {
 
         let apiKey = watchRes.rows[0].api_key;
         if (!apiKey) {
-            apiKey = uuidv4();
+            apiKey = crypto.randomUUID();
             await db.query(
                 'UPDATE watched_sheets SET api_key = $1 WHERE user_id = $2 AND spreadsheet_id = $3 AND sheet_title = $4',
                 [apiKey, userId, spreadsheetId, sheetTitle]
@@ -337,7 +339,7 @@ router.get('/:id/api-key', async (req, res) => {
     }
 });
 
-const { addSheet } = require('../services/googleSheetsService');
+
 
 /**
  * POST /sheets/:spreadsheetId/add-sheet
