@@ -64,7 +64,7 @@ router.get('/drive-sheets', async (req, res) => {
 router.get('/', async (req, res) => {
     try {
         const { spreadsheetId } = req.query;
-        const authData = googleToken || req.user?.uid;
+        const authData = req.user?.uid;
         if (!spreadsheetId) {
             return res.status(400).json({ error: 'spreadsheetId query parameter is required' });
         }
@@ -90,7 +90,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
     try {
         const parts = decodeURIComponent(req.params.id).split('|');
-        const authData = googleToken || req.user?.uid;
+        const authData = req.user?.uid;
         if (parts.length < 2) {
             return res.status(400).json({
                 error: 'id must be URL-encoded "spreadsheetId|sheetTitle"',
@@ -118,7 +118,7 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/meta', async (req, res) => {
     try {
         const parts = decodeURIComponent(req.params.id).split('|');
-        const authData = googleToken || req.user?.uid;
+        const authData = req.user?.uid;
         if (parts.length < 2) {
             return res.status(400).json({ error: 'id must be "spreadsheetId|sheetTitle"' });
         }
@@ -185,9 +185,8 @@ router.post('/create', async (req, res) => {
     try {
         console.log("BODY:", req.body); // debug
 
-        const googleToken = req.headers['x-google-token'];
         const userId = req.user.uid;
-        const authData = googleToken || userId;
+        const authData = req.headers['x-google-token'] || userId;
         
         const title = req.body?.title || "Default Sheet";
         const headers = req.body?.headers || [];
@@ -199,7 +198,22 @@ router.post('/create', async (req, res) => {
         // The watch will now use the stored tokens for this user
         await addWatch(userId, newSheet.spreadsheetId, firstSheetTitle);
 
-        return res.json({ success: true, data: newSheet });
+        // Return a SheetDto-compatible response
+        const firstSheet = newSheet.sheets[0];
+        return res.json({
+            success: true,
+            data: {
+                sheetId: String(firstSheet.sheetId),
+                title: firstSheet.title,
+                spreadsheetId: newSheet.spreadsheetId,
+                spreadsheetTitle: newSheet.title,
+                index: 0,
+                rowCount: 1000,
+                columnCount: headers.length || 26,
+                lastUpdateTime: new Date().toISOString(),
+                hasNewEntries: false
+            }
+        });
     } catch (err) {
         console.error('[Sheets] create error:', err.message);
         return res.status(500).json({ error: 'Failed to create spreadsheet', detail: err.message });
