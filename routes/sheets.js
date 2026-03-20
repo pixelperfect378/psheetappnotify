@@ -281,4 +281,28 @@ router.get('/:id/api-key', async (req, res) => {
     }
 });
 
+const { addSheet } = require('../services/googleSheetsService');
+
+/**
+ * POST /sheets/:spreadsheetId/add-sheet
+ * Adds a new tab (sheet) to an existing spreadsheet.
+ */
+router.post('/:spreadsheetId/add-sheet', async (req, res) => {
+    try {
+        const { spreadsheetId } = req.params;
+        const { title, headers } = req.body;
+        const googleToken = req.headers['x-google-token'];
+
+        if (!title) {
+            return res.status(400).json({ error: 'Sheet title is required' });
+        }
+
+        const result = await addSheet(spreadsheetId, title, headers, googleToken);
+        return res.json({ success: true, data: result });
+    } catch (err) {
+        console.error('[Sheets] addSheet error:', err.message);
+        return res.status(500).json({ error: 'Failed to add sheet', detail: err.message });
+    }
+});
+
 module.exports = router;

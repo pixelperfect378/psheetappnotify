@@ -234,4 +234,49 @@ async function appendRow(spreadsheetId, range, values, googleToken = null) {
     return response.data;
 }
 
-module.exports = { listSheets, getSheetMeta, getSheetData, createSpreadsheet, appendRow };
+/**
+ * Add a new sheet (tab) to an existing spreadsheet.
+ * @param {string} spreadsheetId
+ * @param {string} title - The title of the new sheet
+ * @param {string[]} headers - Optional initial headers for the new sheet
+ * @param {object} googleToken - OAuth token data
+ */
+async function addSheet(spreadsheetId, title, headers = [], googleToken = null) {
+    const client = await getSheetsClient(googleToken);
+
+    // 1. Add the sheet
+    const addSheetRes = await client.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: {
+            requests: [
+                {
+                    addSheet: {
+                        properties: { title },
+                    },
+                },
+            ],
+        },
+    });
+
+    const newSheetId = addSheetRes.data.replies[0].addSheet.properties.sheetId;
+
+    // 2. If headers provided, set them
+    if (headers && headers.length > 0) {
+        await client.spreadsheets.values.update({
+            spreadsheetId,
+            range: `${title}!1:1`,
+            valueInputOption: 'USER_ENTERED',
+            resource: {
+                values: [headers],
+            },
+        });
+    }
+
+    return {
+        spreadsheetId,
+        sheetId: newSheetId,
+        title,
+    };
+}
+
+module.exports = { listSheets, getSheetMeta, getSheetData, createSpreadsheet, appendRow, addSheet };
