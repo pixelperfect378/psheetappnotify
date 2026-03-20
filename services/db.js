@@ -37,6 +37,7 @@ async function initDb() {
         access_token TEXT,
         refresh_token TEXT,
         token_expiry TIMESTAMP,
+        api_key TEXT UNIQUE,
         UNIQUE(user_id, spreadsheet_id, sheet_title)
       )
     `);

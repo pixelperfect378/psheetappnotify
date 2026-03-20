@@ -183,4 +183,102 @@ router.post('/unwatch', async (req, res) => {
     }
 });
 
+const { createSpreadsheet, appendRow } = require('../services/googleSheetsService');
+const { v4: uuidv4 } = require('uuid');
+const db = require('../services/db');
+
+/**
+ * POST /sheets/create
+ * Creates a new spreadsheet and automatically watches it.
+ */
+router.post('/create', async (req, res) => {
+    try {
+        const { title, headers } = req.body;
+        const googleToken = req.headers['x-google-token'];
+        const userId = req.user.uid;
+
+        if (!title) {
+            return res.status(400).json({ error: 'Spreadsheet title is required' });
+        }
+
+        const newSheet = await createSpreadsheet(title, headers, googleToken);
+        
+        // Automatically watch the first sheet of the new spreadsheet
+        const firstSheetTitle = newSheet.sheets[0].title;
+        await addWatch(userId, newSheet.spreadsheetId, firstSheetTitle);
+
+        return res.json({ success: true, data: newSheet });
+    } catch (err) {
+        console.error('[Sheets] create error:', err.message);
+        return res.status(500).json({ error: 'Failed to create spreadsheet', detail: err.message });
+    }
+});
+
+/**
+ * POST /sheet/:id/append
+ * Appends a row to the specified sheet.
+ */
+router.post('/:id/append', async (req, res) => {
+    try {
+        const parts = decodeURIComponent(req.params.id).split('|');
+        const googleToken = req.headers['x-google-token'];
+        const { values } = req.body;
+
+        if (parts.length < 2) {
+            return res.status(400).json({ error: 'Invalid sheet ID format' });
+        }
+        if (!values || !Array.isArray(values)) {
+            return res.status(400).json({ error: 'values must be an array' });
+        }
+
+        const [spreadsheetId, ...titleParts] = parts;
+        const sheetTitle = titleParts.join('|');
+
+        const result = await appendRow(spreadsheetId, sheetTitle, values, googleToken);
+        return res.json({ success: true, data: result });
+    } catch (err) {
+        console.error('[Sheets] append error:', err.message);
+        return res.status(500).json({ error: 'Failed to append data', detail: err.message });
+    }
+});
+
+/**
+ * GET /sheet/:id/api-key
+ * Generates or retrieves the unique API key for this sheet.
+ */
+router.get('/:id/api-key', async (req, res) => {
+    try {
+        const parts = decodeURIComponent(req.params.id).split('|');
+        const userId = req.user.uid;
+        if (parts.length < 2) return res.status(400).json({ error: 'Invalid ID' });
+        
+        const [spreadsheetId, ...titleParts] = parts;
+        const sheetTitle = titleParts.join('|');
+
+        // Check if watch exists and has a key
+        const watchRes = await db.query(
+            'SELECT api_key FROM watched_sheets WHERE user_id = $1 AND spreadsheet_id = $2 AND sheet_title = $3',
+            [userId, spreadsheetId, sheetTitle]
+        );
+
+        if (watchRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Sheet is not being watched. Watch it first to generate an API.' });
+        }
+
+        let apiKey = watchRes.rows[0].api_key;
+        if (!apiKey) {
+            apiKey = uuidv4();
+            await db.query(
+                'UPDATE watched_sheets SET api_key = $1 WHERE user_id = $2 AND spreadsheet_id = $3 AND sheet_title = $4',
+                [apiKey, userId, spreadsheetId, sheetTitle]
+            );
+        }
+
+        return res.json({ success: true, apiKey });
+    } catch (err) {
+        console.error('[Sheets] api-key error:', err.message);
+        return res.status(500).json({ error: 'Failed to handle API key', detail: err.message });
+    }
+});
+
 module.exports = router;

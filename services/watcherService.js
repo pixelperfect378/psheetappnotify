@@ -69,15 +69,15 @@ async function checkSheets() {
 
                 const meta = await getSheetMeta(watch.spreadsheet_id, watch.sheet_title, tokenData);
 
-                if (meta.total_rows > watch.last_row_count) {
+                if (meta.totalRows > watch.last_row_count) {
                     console.log(`[Watcher] New rows detected in ${watch.sheet_title} (${watch.spreadsheet_id})`);
 
-                    const newlyAddedCount = meta.total_rows - watch.last_row_count;
+                    const newlyAddedCount = meta.totalRows - watch.last_row_count;
 
                     // Update watch state in DB
                     await db.query(
                         'UPDATE watched_sheets SET last_row_count = $1, last_check = CURRENT_TIMESTAMP WHERE id = $2',
-                        [meta.total_rows, watch.id]
+                        [meta.totalRows, watch.id]
                     );
 
                     // Send notifications

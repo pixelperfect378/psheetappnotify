@@ -161,4 +161,76 @@ async function getSheetData(spreadsheetId, sheetTitle, page = 1, pageSize = 50, 
     };
 }
 
-module.exports = { listSheets, getSheetMeta, getSheetData };
+/**
+ * Create a new Google Spreadsheet.
+ * @param {string} title - The title of the new spreadsheet
+ * @param {string[]} headers - Optional initial headers for the first sheet
+ * @param {object} googleToken - OAuth token data
+ */
+async function createSpreadsheet(title, headers = [], googleToken = null) {
+    const client = await getSheetsClient(googleToken);
+
+    const resource = {
+        properties: { title },
+    };
+
+    if (headers && headers.length > 0) {
+        resource.sheets = [
+            {
+                properties: { title: 'Sheet1' },
+                data: [
+                    {
+                        startRow: 0,
+                        startColumn: 0,
+                        rowData: [
+                            {
+                                values: headers.map((h) => ({
+                                    userEnteredValue: { stringValue: h },
+                                })),
+                            },
+                        ],
+                    },
+                ],
+            },
+        ];
+    }
+
+    const response = await client.spreadsheets.create({
+        resource,
+        fields: 'spreadsheetId,properties.title,sheets.properties',
+    });
+
+    return {
+        spreadsheetId: response.data.spreadsheetId,
+        title: response.data.properties.title,
+        sheets: response.data.sheets.map((s) => ({
+            sheetId: s.properties.sheetId,
+            title: s.properties.title,
+        })),
+    };
+}
+
+/**
+ * Append a row of data to a specific sheet.
+ * @param {string} spreadsheetId
+ * @param {string} range - Sheet name or A1 range (e.g. "Sheet1!A1")
+ * @param {any[]} values - Array of values to insert
+ * @param {object} googleToken - OAuth token data
+ */
+async function appendRow(spreadsheetId, range, values, googleToken = null) {
+    const client = await getSheetsClient(googleToken);
+
+    const response = await client.spreadsheets.values.append({
+        spreadsheetId,
+        range,
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        resource: {
+            values: [values],
+        },
+    });
+
+    return response.data;
+}
+
+module.exports = { listSheets, getSheetMeta, getSheetData, createSpreadsheet, appendRow };
